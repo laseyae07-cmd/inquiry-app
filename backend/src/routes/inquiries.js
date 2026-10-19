@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db/pool.js';
 import { requireAuth } from '../middleware/auth.js';
 import { canSeeAll, canAccess } from '../services/access.js';
+import { canTransition, ALLOWED_TRANSITIONS } from '../services/statusRules.js';
 
 export const inquiriesRouter = Router();
 
@@ -132,5 +133,78 @@ inquiriesRouter.get('/:id', async (req, res) => {
         [id]
     );
 
-    res.json({ inquiry, events: events.rows });
+      res.json({ inquiry, events: events.rows, allowed_transitions: ALLOWED_TRANSITIONS[inquiry.status] });
+});
+
+// CHANGE the status of an inquiry
+const statusSchema = z.object({
+    status: z.enum(STATUSES, { message: `Status must be one of: ${STATUSES.join(', ')}` }),
+    version: z.number({ message: 'The current version is required' }).int().positive(),
+});
+
+inquiriesRouter.patch('/:id/status', async (req, res) => {
+    const { id } = req.params;
+    if (!UUID_RE.test(id)) {
+        return res.status(400).json({ error: 'That is not a valid inquiry ID' });
+    }
+
+    const parsed = statusSchema.safeParse(req.body);
+    if (!parsed.success) return validationError(res, parsed.error);
+    const { status: newStatus, version } = parsed.data;
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // FOR UPDATE locks this row so two requests can't change it at the same time
+        const { rows } = await client.query('SELECT * FROM inquiries WHERE id = $1 FOR UPDATE', [id]);
+        const inquiry = rows[0];
+
+        if (!inquiry || !canAccess(req.user, inquiry)) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Inquiry not found' });
+        }
+
+        // Stale data: the user was looking at an older copy
+        if (inquiry.version !== version) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({
+                error: 'This inquiry was changed by someone else. Reload to see the latest version',
+                code: 'STALE_VERSION',
+                current: inquiry,
+            });
+        }
+
+        // Invalid transition, e.g. New -> Resolved
+        if (!canTransition(inquiry.status, newStatus)) {
+            await client.query('ROLLBACK');
+            const allowed = ALLOWED_TRANSITIONS[inquiry.status];
+            return res.status(409).json({
+                error: `Cannot change from ${inquiry.status} to ${newStatus}. Allowed: ${allowed.join(', ')}`,
+                code: 'INVALID_TRANSITION',
+                allowed,
+            });
+        }
+
+        const updated = await client.query(
+            `UPDATE inquiries
+       SET status = $1, version = version + 1, updated_at = now()
+       WHERE id = $2 RETURNING *`,
+            [newStatus, id]
+        );
+
+        await client.query(
+            `INSERT INTO inquiry_events (inquiry_id, user_id, from_status, to_status)
+       VALUES ($1, $2, $3, $4)`,
+            [id, req.user.id, inquiry.status, newStatus]
+        );
+
+        await client.query('COMMIT');
+        res.json({ inquiry: updated.rows[0] });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
 });
