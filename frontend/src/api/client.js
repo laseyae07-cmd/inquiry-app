@@ -34,4 +34,16 @@ export const api = {
     login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
     logout: () => request('/auth/logout', { method: 'POST' }),
     me: () => request('/auth/me'),
+
+    listInquiries: ({ q, status } = {}) => {
+        const params = new URLSearchParams();
+        if (q) params.set('q', q);
+        if (status) params.set('status', status);
+        const qs = params.toString();
+        return request(`/inquiries${qs ? `?${qs}` : ''}`);
+    },
+    getInquiry: id => request(`/inquiries/${id}`),
+    createInquiry: data => request('/inquiries', { method: 'POST', body: data }),
+    changeStatus: (id, status, version) =>
+        request(`/inquiries/${id}/status`, { method: 'PATCH', body: { status, version } }),
 };

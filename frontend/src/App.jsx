@@ -1,20 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './pages/LoginPage';
-
-// Temporary home page, we replace it in the next step
-function HomePage() {
-  const { user, logout } = useAuth();
-  return (
-    <main className="auth-page">
-      <div className="card">
-        <h1>Welcome, {user.name}</h1>
-        <p className="muted">Role: {user.role}</p>
-        <button onClick={logout}>Sign out</button>
-      </div>
-    </main>
-  );
-}
+import InquiryListPage from './pages/InquiryListPage';
+import Layout from './components/Layout';
 
 // Sends signed-out visitors to the login page
 function RequireLogin({ children }) {
@@ -29,7 +17,10 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={<RequireLogin><HomePage /></RequireLogin>} />
+          <Route element={<RequireLogin><Layout /></RequireLogin>}>
+            <Route path="/" element={<InquiryListPage />} />
+            {/* Create and detail pages are added in the next steps */}
+          </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
