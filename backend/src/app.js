@@ -1,6 +1,7 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import { authRouter } from './routes/auth.js'; // NEW
+import { authRouter } from './routes/auth.js';
+import { inquiriesRouter } from './routes/inquiries.js'; // NEW
 
 export const app = express();
 
@@ -11,7 +12,8 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
 });
 
-app.use('/api/auth', authRouter); // NEW
+app.use('/api/auth', authRouter);
+app.use('/api/inquiries', inquiriesRouter); // NEW
 
 app.use('/api', (req, res) => {
     res.status(404).json({ error: 'Route not found' });
